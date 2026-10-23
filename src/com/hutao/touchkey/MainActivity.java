@@ -32,6 +32,9 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     private SharedPreferences prefs;
     private TextView status,summary,details;
     private Switch auto;
+    private Switch lockedNfc;
+    private TextView lockedStatus;
+    private boolean updatingLockedUi;
     private Button open,writeTag;
     private volatile int mode;
     private volatile LockEngine engine;
@@ -57,8 +60,35 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         auto=new Switch(this);auto.setText("碰一碰自动开锁");auto.setTextSize(17);auto.setTextColor(fg);auto.setPadding(0,dp(23),0,dp(12));auto.setChecked(prefs.getBoolean("auto",false));root.addView(auto);
         auto.setOnCheckedChangeListener((view,checked)->{
             if(checked&&!prefs.getBoolean("validated",false)){view.setChecked(false);show("请先完成一次手动开锁验证");return;}
-            prefs.edit().putBoolean("auto",checked).apply();refresh();
+            prefs.edit().putBoolean("auto",checked).apply();
+            if(!checked){prefs.edit().putBoolean("lockedNfc",false).apply();stopService(new Intent(this,LockScreenService.class));}
+            refresh();
         });
+        lockedNfc=new Switch(this);lockedNfc.setText("锁屏碰一碰（实验：需亮屏）");lockedNfc.setTextSize(17);lockedNfc.setTextColor(fg);root.addView(lockedNfc);
+        lockedStatus=text("",13,muted,false);root.addView(lockedStatus);
+        TextView lockedNote=text("保持后台监听通知，允许自启动和后台运行。开机首次解锁后尝试恢复；系统强行停止后需重新打开应用。",13,muted,false);lockedNote.setPadding(0,dp(8),0,dp(12));root.addView(lockedNote);
+        lockedNfc.setOnCheckedChangeListener((view,checked)->{
+            if(updatingLockedUi)return;
+            if(checked){
+                String error=!LockedNfc.supported()?"这台手机的系统版本尚未验证锁屏 NFC":
+                    checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)!=PackageManager.PERMISSION_GRANTED?"请先通过电脑授予锁屏 NFC 权限（系统安全设置权限）":
+                    !hasBluetooth()?"请先授予附近设备权限":
+                    !prefs.getBoolean("auto",false)||!prefs.getBoolean("configured",false)||!prefs.getBoolean("validated",false)||prefs.getString("tagId","").isEmpty()?"请先完成标签配置、开锁验证，并开启碰一碰自动开锁":null;
+                if(error!=null){updatingLockedUi=true;view.setChecked(false);updatingLockedUi=false;show(error);return;}
+                if(checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
+                    updatingLockedUi=true;view.setChecked(false);updatingLockedUi=false;
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},25);return;
+                }
+                prefs.edit().putBoolean("lockedNfc",true).apply();
+                try{startForegroundService(new Intent(this,LockScreenService.class));}
+                catch(Exception e){prefs.edit().putBoolean("lockedNfc",false).apply();show("无法启动锁屏监听，请重新打开应用");}
+            }else{prefs.edit().putBoolean("lockedNfc",false).apply();stopService(new Intent(this,LockScreenService.class));}
+            view.postDelayed(this::refresh,800);
+        });
+        Switch hideRecent=new Switch(this);hideRecent.setText("隐藏最近任务卡片");hideRecent.setTextSize(17);hideRecent.setTextColor(fg);
+        hideRecent.setChecked(prefs.getBoolean("hideRecents",true));root.addView(hideRecent);
+        TextView hideNote=text("保留桌面图标和监听通知，减少误划掉后台卡片。关闭此开关可恢复卡片显示。",13,muted,false);hideNote.setPadding(0,dp(8),0,dp(12));root.addView(hideNote);
+        hideRecent.setOnCheckedChangeListener((view,checked)->{prefs.edit().putBoolean("hideRecents",checked).apply();applyRecentVisibility();});
         Button importKey=button("导入门锁密钥",Color.rgb(49,61,85));root.addView(importKey);importKey.setOnClickListener(v->importKey());
         Button learn=button("读取门锁标签",Color.rgb(49,61,85));root.addView(learn);learn.setOnClickListener(v->{mode=0;nfcLaunch=false;enableReader();show("请保持本页打开，靠近门锁标签");});
         writeTag=button("配置原标签，启用碰一碰",Color.rgb(49,61,85));root.addView(writeTag);writeTag.setOnClickListener(v->confirmWrite(false));
@@ -70,10 +100,22 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     private void refresh(){
         String mac=prefs.getString("mac","");summary.setText(mac.isEmpty()?"尚未配置钥匙":"门锁 "+mac+"\n"+(KeyStore.has(this)?"密钥已加密保存在本机":"尚未导入密钥")+"\n"+(prefs.getBoolean("validated",false)?"已通过本机开锁验证":"等待本机开锁验证"));
         if(details!=null)details.setText(prefs.getString("report",""));
+        if(lockedNfc!=null){updatingLockedUi=true;lockedNfc.setChecked(LockScreenService.RUNNING&&prefs.getBoolean("lockedNfc",false));updatingLockedUi=false;
+            lockedStatus.setText((LockScreenService.RUNNING?"监听运行中":"监听未运行")+"\n最近记录："+prefs.getString("lockedNfcStatus","开启后，点亮屏幕但保持锁定，再碰门锁标签。"));}
     }
     private void show(String value){runOnUiThread(()->{if(!isFinishing())status.setText(value);});}
     private void enableReader(){if(!nfcLaunch&&adapter!=null&&adapter.isEnabled())adapter.enableReaderMode(this,this,NfcAdapter.FLAG_READER_NFC_A|NfcAdapter.FLAG_READER_NFC_B|NfcAdapter.FLAG_READER_NFC_F|NfcAdapter.FLAG_READER_NFC_V,null);}
-    @Override protected void onResume(){super.onResume();enableReader();}
+    private void applyRecentVisibility(){
+        boolean hide=prefs.getBoolean("hideRecents",true);
+        try{android.app.ActivityManager manager=getSystemService(android.app.ActivityManager.class);
+            for(android.app.ActivityManager.AppTask task:manager.getAppTasks()){
+                android.app.ActivityManager.RecentTaskInfo info=task.getTaskInfo();
+                int id=Build.VERSION.SDK_INT>=29?info.taskId:info.id;
+                if(id==getTaskId())task.setExcludeFromRecents(hide);
+            }
+        }catch(RuntimeException e){show("未能更新后台卡片显示，请重新打开应用");}
+    }
+    @Override protected void onResume(){super.onResume();applyRecentVisibility();enableReader();ListenerRestoreReceiver.restore(this);refresh();if(lockedNfc!=null)lockedNfc.postDelayed(this::refresh,800);}
     @Override protected void onPause(){mode=0;if(adapter!=null)adapter.disableReaderMode(this);super.onPause();}
     @Override protected void onDestroy(){LockEngine e=engine;if(e!=null)e.close();work.shutdownNow();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);handleIntent(intent);}
@@ -134,7 +176,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         }else show("请长按桌面，进入组件，选择「胡桃碰一碰」开锁卡片");
     }
     private void requestBluetooth(){if(Build.VERSION.SDK_INT>=31)requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},24);}
-    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==24)show(hasBluetooth()?"蓝牙权限已开启，请再点一次操作":"需要附近设备权限才能连接门锁");}
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==24)show(hasBluetooth()?"蓝牙权限已开启，请再点一次操作":"需要附近设备权限才能连接门锁");if(request==25)show(checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED?"通知已允许，请开启锁屏监听":"锁屏监听需要显示运行通知");}
     private void startUnlock(boolean reallyOpen){
         if(!hasBluetooth()){requestBluetooth();return;}
         final String mac=prefs.getString("mac","");

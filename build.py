@@ -30,7 +30,7 @@ if args.release:
     ns='{http://schemas.android.com/apk/res/android}'
     tree=ET.parse(manifest);root=tree.getroot()
     root.set(ns+'versionCode',str(int(root.get(ns+'versionCode'))+1))
-    root.set(ns+'versionName','1.0')
+    root.set(ns+'versionName',root.get(ns+'versionName','1.0'))
     root.find('application').set(ns+'debuggable','false')
     manifest=BUILD/'AndroidManifest-release.xml';tree.write(manifest,encoding='utf-8',xml_declaration=True)
 run([BT/'aapt2.exe','compile','--dir',ROOT/'res','-o',BUILD/'resources.zip'])
