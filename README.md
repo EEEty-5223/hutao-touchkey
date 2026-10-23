@@ -2,9 +2,9 @@
 
 **面向本人获授权的天猫精灵校园门锁（天猫校园）BLE 开锁替代客户端。实测极速开锁。** 应用内手动、桌面“一键开门”卡片和 NFC 碰一碰均已成功开门。“极速”描述用户实机体验，没有发布毫秒级测速数据；当前只验证特定门锁与手机，不能代表所有校园门锁兼容。
 
-当前交付：**1.1.2-background-test / versionCode 9**，2026-10-23。名称仍保留实验版标识，不代表所有机型均支持锁屏功能。
+当前交付：**1.2.1-nfc-sound / versionCode 12**，2026-10-24。名称仍保留实验版标识，不代表所有机型均支持锁屏功能。
 
-- [下载 APK 和完整交付包](https://github.com/EEEty-5223/hutao-touchkey/releases/tag/v1.1.2-background-test)
+- [下载 APK 和源码](https://github.com/EEEty-5223/hutao-touchkey/releases/tag/v1.2.1-nfc-sound)
 - [更新日志](CHANGELOG.md)
 - [可交给其他 AI 的项目记忆](docs/AI_HANDOFF.md)
 - [iOS 复刻说明与 BLE 协议](docs/IOS_REPLICATION.md)
@@ -24,6 +24,9 @@
 
 ## 功能
 
+- 1.2.1 NFC 识别语音：前台读标签和亮屏锁屏监听匹配已配置门锁后，立即播放内置语音，不等待蓝牙连接或开锁结果；使用媒体音量，播放期间不叠加。已完成构建、原签名校验与 iQOO 13 覆盖安装，语音实际播放仍待用户明确反馈。完全息屏 NFC 不支持。
+- 保留 1.2.0 手机端小米手环通信入口：手环按钮通过手机中继开门；本次未更新手环安装包，也未重新验收手环开门。
+
 - 手动开锁与仅验证密钥、不发送开锁指令。
 - 桌面“一键开门”卡片：直接连接门锁，操作完成后返回桌面，不打开应用主页。
 - NFC 碰一碰：屏幕亮起并解锁时识别已登记的标签，自动执行开锁。
@@ -35,6 +38,9 @@
 
 ## 源码结构
 
+- `NfcAudio.java`、`res/raw/nfc_recognized.ogg`：门锁 NFC 识别语音。
+- `WristActivity.java`、`WristService.java`、`WristSession.java`：手机端手环通信和会话管理。
+
 - `src/com/hutao/touchkey/MainActivity.java`：主界面、密钥导入、NFC 标签读取/配置/恢复。
 - `src/com/hutao/touchkey/UnlockWidget.java`、`UnlockService.java`：桌面开锁卡片与后台连接服务。
 - `src/com/hutao/touchkey/LockEngine.java`、`LockProtocol.java`：BLE 通讯和协议处理。
@@ -44,9 +50,10 @@
 
 ## 构建
 
-项目使用 Python 3、JDK 21、Android API 36 和 Android Build Tools 36，不依赖第三方 Java 库。原开发环境将 Android 工具放在项目父目录的 `android-tools/sdk/` 下：平台库位于 `android-36/android.jar`，Build Tools 解压目录名为 `android-16`。
+项目使用 Python 3、JDK 21、Android API 36 和 Android Build Tools 36，手机手环通信依赖 Xiaomi Wearable SDK 1.4。先执行 `python fetch_wearable_sdk.py` 获取官方 SDK 并校验内容摘要；SDK 不放入仓库。原开发环境将 Android 工具放在项目父目录的 `android-tools/sdk/` 下：平台库位于 `android-36/android.jar`，Build Tools 解压目录名为 `android-16`。
 
 ```powershell
+python fetch_wearable_sdk.py
 python build.py
 python build.py --release
 ```

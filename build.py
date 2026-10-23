@@ -16,6 +16,9 @@ JAVA_HOME=Path(re.search(r'java.home\s*=\s*(.+)',props).group(1).strip())
 BIN=JAVA_HOME/'bin'
 BT=SDK/'android-16'
 ANDROID=SDK/'android-36'/'android.jar'
+WEARABLE=TOOLS/'vendor'/'xiaomi-wearable-1.4.jar'
+if not WEARABLE.exists():
+    raise SystemExit('Run python fetch_wearable_sdk.py to download the official Xiaomi wearable SDK first.')
 
 def run(args):
     subprocess.run([str(a) for a in args],check=True,cwd=ROOT)
@@ -36,9 +39,9 @@ if args.release:
 run([BT/'aapt2.exe','compile','--dir',ROOT/'res','-o',BUILD/'resources.zip'])
 run([BT/'aapt2.exe','link','-I',ANDROID,'--manifest',manifest,'--java',GEN,'-o',BUILD/'resources.apk',BUILD/'resources.zip'])
 sources=list((ROOT/'src').rglob('*.java'))+list(GEN.rglob('*.java'))
-run([BIN/'javac.exe','-J-Duser.language=en','-encoding','UTF-8','--release','8','-classpath',ANDROID,'-d',CLASSES]+sources)
+run([BIN/'javac.exe','-J-Duser.language=en','-encoding','UTF-8','--release','8','-classpath',str(ANDROID)+os.pathsep+str(WEARABLE),'-d',CLASSES]+sources)
 classes=list(CLASSES.rglob('*.class'))
-run([JAVA,'-cp',BT/'lib'/'d8.jar','com.android.tools.r8.D8','--lib',ANDROID,'--min-api','26','--output',DEX]+classes)
+run([JAVA,'-cp',BT/'lib'/'d8.jar','com.android.tools.r8.D8','--lib',ANDROID,'--min-api','26','--output',DEX,WEARABLE]+classes)
 unsigned=BUILD/'unsigned.apk'
 shutil.copy2(BUILD/'resources.apk',unsigned)
 with zipfile.ZipFile(unsigned,'a',compression=zipfile.ZIP_DEFLATED) as z:

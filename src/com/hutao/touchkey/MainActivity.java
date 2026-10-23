@@ -57,6 +57,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         open=button("手动开锁",Color.rgb(225,73,128));root.addView(open);open.setOnClickListener(v->startUnlock(true));
         Button widget=button("添加桌面开锁卡片",Color.rgb(49,61,85));root.addView(widget);widget.setOnClickListener(v->addWidget());
         Button probe=button("验证钥匙（不开锁）",Color.rgb(49,61,85));root.addView(probe);probe.setOnClickListener(v->startUnlock(false));
+        Button wrist=button("手环开门（测试）",Color.rgb(49,61,85));root.addView(wrist);wrist.setOnClickListener(v->startActivity(new Intent(this,WristActivity.class)));
         auto=new Switch(this);auto.setText("碰一碰自动开锁");auto.setTextSize(17);auto.setTextColor(fg);auto.setPadding(0,dp(23),0,dp(12));auto.setChecked(prefs.getBoolean("auto",false));root.addView(auto);
         auto.setOnCheckedChangeListener((view,checked)->{
             if(checked&&!prefs.getBoolean("validated",false)){view.setChecked(false);show("请先完成一次手动开锁验证");return;}
@@ -127,6 +128,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         onTagDiscovered(tag);
     }
     @Override public void onTagDiscovered(Tag tag){
+        NfcAudio.onTag(this,tag);
         if(opening.get()||!handling.compareAndSet(false,true))return;
         if(work.isShutdown()){handling.set(false);return;}
         final int requestedMode=mode;
@@ -142,6 +144,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                     if(configured.isEmpty()||!configured.equals(mac))throw new Exception("这不是已配置的门锁");
                     String id=LockProtocol.hex(tag.getId()),known=prefs.getString("tagId","");
                     if(!known.isEmpty()&&!known.equals(id))throw new Exception("标签编号与已登记的门锁不一致");
+                    NfcAudio.play(this);
                     SharedPreferences.Editor edit=prefs.edit().putString("tagId",id);
                     if(prefs.getString("original","").isEmpty()&&!hasOwnRecord(current))edit.putString("original",LockProtocol.hex(current.toByteArray()));
                     String report="已识别门锁标签\n"+mac+"\n标签编号 "+id+"\n标签容量 "+ndef.getMaxSize()+" 字节\n当前内容 "+current.toByteArray().length+" 字节";

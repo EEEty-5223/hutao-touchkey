@@ -1,8 +1,8 @@
 # 安装、构建与文件核对
 
-当前推荐 APK：`hutao-touchkey-1.1.2-background-test.apk`，versionCode 9。仍为实验版本，锁屏功能只限已验证固件。
+当前推荐 APK：`hutao-touchkey-1.2.1-nfc-sound-vc12.apk`，versionCode 12。仍为实验版本，锁屏功能只限已验证固件。
 
-SHA256：`5708bea68ef1a71473a8a0af8ab78df100b3a324a7a329a4644d4fabfbad7fb4`
+SHA256：`1f4811190dd8963a5a0c0d8651ffc029d19f5ef385a6dbba438f832a12405f40`
 
 历史可用 APK：`hutao-touchkey-1.0.apk`，versionCode 6，仅基础功能；SHA256：`1c2157bc183de21b568861dc5e6c5b3c32f87ae5f117bb126bf98350f6643e2d`。
 
@@ -10,7 +10,9 @@ SHA256：`5708bea68ef1a71473a8a0af8ab78df100b3a324a7a329a4644d4fabfbad7fb4`
 
 ## 安装与使用
 
-同包同签名可从 1.0 覆盖升级到 1.1.2；不要先卸载，卸载会清除本机钥匙与设置。1.0 版本号较低，不能当作无损降级包直接覆盖新版本；如需换回旧版，应先确认自己有合法配置备份，避免卸载后丢失。
+1.2.1 在识别已配置门锁 NFC 时播放内置语音，跟随媒体音量；前台和亮屏锁屏两个入口均已接入。安装后已确认锁屏监听恢复，实际语音播放尚待明确反馈。
+
+同包同签名可从 1.0 覆盖升级到 1.2.1；不要先卸载，卸载会清除本机钥匙与设置。1.0 版本号较低，不能当作无损降级包直接覆盖新版本；如需换回旧版，应先确认自己有合法配置备份，避免卸载后丢失。
 
 新手机自行安装、允许蓝牙连接权限，导入自有门锁配置，先在门旁验证钥匙并手动开门。随后添加桌面“一键开门”卡片；需要 NFC 时先读取对应标签，再依应用提示配置并保留原标签恢复数据。包内没有钥匙，也不自动连接任意门锁。
 
@@ -33,7 +35,7 @@ adb shell pm revoke ht.key android.permission.WRITE_SECURE_SETTINGS
 
 ## 从源码构建
 
-需要 Windows、Python 3、JDK 21、Android API 36 / Build Tools 36。现有脚本会用 Oracle javapath 的 java.exe 查询 JAVA_HOME；在其他环境请修改 `JAVA`、`TOOLS`、`BT`、`ANDROID` 的路径。
+需要 Windows、Python 3、JDK 21、Android API 36 / Build Tools 36，以及 Xiaomi Wearable SDK 1.4。先运行 `python fetch_wearable_sdk.py` 获取官方 SDK 并校验摘要，生成在 `android-tools/vendor/xiaomi-wearable-1.4.jar`。现有脚本会用 Oracle javapath 的 java.exe 查询 JAVA_HOME；在其他环境请修改 `JAVA`、`TOOLS`、`BT`、`ANDROID` 的路径。
 
 预期目录：
 
@@ -48,11 +50,12 @@ workspace/
 ```
 
 ```powershell
+python fetch_wearable_sdk.py
 python build.py
 python build.py --release
 ```
 
-调试 APK：`build/hutao-touchkey-test.apk`；release APK：`build/hutao-touchkey.apk`。脚本 release 从清单 versionCode 8 加一生成 9，并关闭 debuggable；debug 保留清单中的 8。因此不要只看源码清单就误称发布 APK 为 versionCode 8。
+调试 APK：`build/hutao-touchkey-test.apk`；release APK：`build/hutao-touchkey.apk`。脚本 release 从清单 versionCode 11 加一生成 12，并关闭 debuggable；debug 保留清单中的 11。因此不要只看源码清单就误称发布 APK 为 versionCode 11。
 
 若私有 signing 目录不存在，脚本会在源码外生成新签名配置。这份新签名无法覆盖本项目已安装的原签名 APK；需要保留原应用时，应使用不同 applicationId，且用户重新导入自己的合法钥匙。禁止把签名文件和密码提交仓库。
 

@@ -17,3 +17,11 @@ touchkey-signing.json
 # Desktop metadata
 .DS_Store
 Thumbs.db
+
+# Wearable dependencies, generated packages, and private signing material
+/wearable/node_modules/
+/wearable/build/
+/wearable/dist/
+/wearable/sign/
+*.pem
+/.temp_wearable/

@@ -60,6 +60,7 @@ public final class LockScreenService extends Service {
         if(!prefs.getString("tagId","").equals(LockProtocol.hex(tag.getId())))return;
         Ndef ndef=Ndef.get(tag);NdefMessage msg=ndef==null?null:ndef.getCachedNdefMessage();
         if(!matches(msg))return;
+        NfcAudio.play(this);
         synchronized(this){long now=SystemClock.elapsedRealtime();
             if((lastTap!=0&&now-lastTap<8000)||System.currentTimeMillis()-prefs.getLong("lastNfcAt",0)<8000||!UnlockGate.OPENING.compareAndSet(false,true))return;
             ownsGate.set(true);lastTap=now;prefs.edit().putLong("lastNfcAt",System.currentTimeMillis()).apply();
