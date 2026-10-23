@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_open" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center" android:padding="12dp"
+    android:background="@drawable/widget_background" android:contentDescription="一键开门，胡桃碰一碰">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="一键开门" android:textSize="22sp" android:textStyle="bold" android:textColor="#FFFFFF" android:maxLines="1" />
+    <TextView android:id="@+id/widget_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="5dp" android:text="胡桃碰一碰" android:textSize="12sp" android:textColor="#FFDCE8" android:maxLines="1" />
+</LinearLayout>

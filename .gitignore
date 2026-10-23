@@ -1,0 +1,19 @@
+# Local build outputs and packages
+/build/
+/test-build/
+*.apk
+*.idsig
+
+# Private signing material
+*.p12
+*.keystore
+touchkey-signing.json
+
+# Local phone evidence and per-device records
+*.png
+/tag-observation.json
+/PROJECT_STATE.md
+
+# Desktop metadata
+.DS_Store
+Thumbs.db
