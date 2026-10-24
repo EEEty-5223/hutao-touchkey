@@ -87,20 +87,19 @@ public final class WristService extends Service {
             }
             if(!"unlock".equals(type))return;
             if(!session.consume(request.optString("token"),SystemClock.elapsedRealtime())){reply(id,false,"请求已过期或过于频繁，请重新点击");return;}
-            SharedPreferences settings=getSharedPreferences("settings",0);
-            if(!settings.getBoolean("validated",false)||settings.getString("mac","").isEmpty()||!KeyStore.has(this)){reply(id,false,"请先在手机上完成钥匙验证");return;}
+            final SharedPreferences settings=KeyProfiles.current(this);
+            if(!settings.getBoolean("validated",false)||settings.getString("mac","").isEmpty()||!KeyStore.has(this,settings.getString("mac",""))){reply(id,false,"请先在手机上完成钥匙验证");return;}
             if(!UnlockGate.OPENING.compareAndSet(false,true)){reply(id,false,"正在开门，请稍候");return;}
             ownsGate.set(true);record("已收到手环开门请求，正在连接门锁");
-            try{work.execute(()->unlock(id));}catch(RejectedExecutionException e){releaseGate();reply(id,false,"通信已关闭");}
+            try{work.execute(()->unlock(id,settings));}catch(RejectedExecutionException e){releaseGate();reply(id,false,"通信已关闭");}
         }catch(Exception ignored){record("已忽略格式不正确的手环消息");}
     }
-    private void unlock(String id){
+    private void unlock(String id,SharedPreferences settings){
         try{
             if(!active||!prefs.getBoolean("enabled",false))return;
             LockEngine current=new LockEngine();engine=current;
             if(!active){current.close();return;}
-            SharedPreferences settings=getSharedPreferences("settings",0);
-            current.run(this,settings.getString("mac",""),KeyStore.read(this),true,m->{});
+            current.run(this,settings.getString("mac",""),KeyStore.read(this,settings.getString("mac","")),true,m->{});
             main.post(()->{if(active){reply(id,true,"门锁已确认开门");UnlockWidget.status(this,"已开门 · 点击可再次开门");record("手环开门成功，门锁已回执确认");}});
         }catch(Exception e){main.post(()->{if(active){reply(id,false,message(e));record("手环开门未完成："+message(e));}});}
         finally{engine=null;releaseGate();}

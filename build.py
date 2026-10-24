@@ -32,7 +32,7 @@ if args.release:
     ET.register_namespace('android','http://schemas.android.com/apk/res/android')
     ns='{http://schemas.android.com/apk/res/android}'
     tree=ET.parse(manifest);root=tree.getroot()
-    root.set(ns+'versionCode',str(int(root.get(ns+'versionCode'))+1))
+    root.set(ns+'versionCode',root.get(ns+'versionCode'))
     root.set(ns+'versionName',root.get(ns+'versionName','1.0'))
     root.find('application').set(ns+'debuggable','false')
     manifest=BUILD/'AndroidManifest-release.xml';tree.write(manifest,encoding='utf-8',xml_declaration=True)

@@ -26,7 +26,6 @@ public final class LockScreenService extends Service {
     private LockedNfc listener;
     private volatile LockEngine engine;
     private boolean active;
-    private long lastTap;
     @Override public IBinder onBind(Intent intent){return null;}
     @Override public void onCreate(){super.onCreate();prefs=getSharedPreferences("settings",0);
         try{
@@ -54,34 +53,26 @@ public final class LockScreenService extends Service {
         if(active&&ready())prefs.edit().putLong("listenerTaskRemovedAt",System.currentTimeMillis()).apply();
         super.onTaskRemoved(rootIntent);
     }
-    private boolean ready(){return prefs.getBoolean("lockedNfc",false)&&prefs.getBoolean("auto",false)&&prefs.getBoolean("validated",false)&&prefs.getBoolean("configured",false)&&!prefs.getString("tagId","").isEmpty()&&KeyStore.has(this);}
+    private boolean ready(){return prefs.getBoolean("lockedNfc",false)&&KeyProfiles.anyReady(this);}
     private void onTag(Tag tag){
         if(!active||!getSystemService(KeyguardManager.class).isKeyguardLocked()||!getSystemService(PowerManager.class).isInteractive()||!ready())return;
-        if(!prefs.getString("tagId","").equals(LockProtocol.hex(tag.getId())))return;
         Ndef ndef=Ndef.get(tag);NdefMessage msg=ndef==null?null:ndef.getCachedNdefMessage();
-        if(!matches(msg))return;
+        final SharedPreferences target=KeyProfiles.match(this,msg,LockProtocol.hex(tag.getId()),true);
+        if(target==null||!KeyProfiles.ready(this,target))return;
         NfcAudio.play(this);
-        synchronized(this){long now=SystemClock.elapsedRealtime();
-            if((lastTap!=0&&now-lastTap<8000)||System.currentTimeMillis()-prefs.getLong("lastNfcAt",0)<8000||!UnlockGate.OPENING.compareAndSet(false,true))return;
-            ownsGate.set(true);lastTap=now;prefs.edit().putLong("lastNfcAt",System.currentTimeMillis()).apply();
-            try{worker.execute(this::unlock);}catch(RejectedExecutionException e){releaseGate();}
+        synchronized(this){
+            if(KeyProfiles.recentTap(target,System.currentTimeMillis())||!UnlockGate.OPENING.compareAndSet(false,true))return;
+            ownsGate.set(true);target.edit().putLong("lastNfcAt",System.currentTimeMillis()).apply();
+            try{worker.execute(()->unlock(target));}catch(RejectedExecutionException e){releaseGate();}
         }
     }
-    private boolean matches(NdefMessage message){
-        if(message==null)return false;
-        for(NdefRecord r:message.getRecords()){Uri uri=r.toUri();
-            if(uri!=null&&"https".equals(uri.getScheme())&&"biz.confong.cn".equals(uri.getHost())&&"/nfc/lock".equals(uri.getPath())){
-                String mac=uri.getQueryParameter("mac");
-                if(mac!=null&&mac.replace(":","").equalsIgnoreCase(prefs.getString("mac","").replace(":","")))return true;
-            }
-        }return false;
-    }
-    private void unlock(){try{
-        if(!active||!ready())return;
+    private void unlock(SharedPreferences target){try{
+        if(!active||!ready()||!KeyProfiles.ready(this,target))return;
         LockEngine current=new LockEngine();engine=current;record("锁屏标签已匹配，正在连接门锁");
         if(!active){current.close();return;}
-        current.run(this,prefs.getString("mac",""),KeyStore.read(this),true,value->{});
-        prefs.edit().putBoolean("validated",true).apply();result(true,"门锁已确认开锁成功");
+        String mac=target.getString("mac","");
+        current.run(this,mac,KeyStore.read(this,mac),true,value->{});
+        target.edit().putBoolean("validated",true).apply();result(true,"门锁已确认开锁成功");
         UnlockWidget.status(this,"已开门 · 点击可再次开门");record("锁屏开锁成功，门锁已回执确认");
         getSystemService(Vibrator.class).vibrate(VibrationEffect.createOneShot(80,VibrationEffect.DEFAULT_AMPLITUDE));
     }catch(Exception e){result(false,message(e));record("锁屏开锁未完成："+message(e));}

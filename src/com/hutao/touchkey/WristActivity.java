@@ -19,7 +19,7 @@ public final class WristActivity extends Activity {
     private boolean authorized;
     private TextView serviceStatus;
     private final Handler main=new Handler(Looper.getMainLooper());
-    private final Runnable refresh=new Runnable(){@Override public void run(){if(serviceStatus!=null)serviceStatus.setText((WristService.RUNNING?"手环通信运行中\n":"手环通信已关闭\n")+getSharedPreferences("wrist",0).getString("status",""));main.postDelayed(this,1000);}};
+    private final Runnable refresh=new Runnable(){@Override public void run(){if(serviceStatus!=null)serviceStatus.setText((WristService.RUNNING?"手环通信运行中\n":"手环通信已关闭\n")+getSharedPreferences("wrist",0).getString("status","")+"\n默认门锁："+KeyProfiles.current(WristActivity.this).getString("name","默认门锁"));main.postDelayed(this,1000);}};
     private final Runnable timeout=()->show("连接检查超时，请确认小米运动健康已打开且手环已连接");
     @Override public void onCreate(Bundle state){
         super.onCreate(state);

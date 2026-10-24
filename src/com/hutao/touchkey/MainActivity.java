@@ -29,20 +29,21 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     private final AtomicBoolean handling=new AtomicBoolean(false);
     private final AtomicBoolean opening=UnlockGate.OPENING;
     private NfcAdapter adapter;
-    private SharedPreferences prefs;
+    private volatile SharedPreferences prefs;
+    private SharedPreferences global;
     private TextView status,summary,details;
     private Switch auto;
     private Switch lockedNfc;
     private TextView lockedStatus;
     private boolean updatingLockedUi;
+    private boolean updatingAuto;
     private Button open,writeTag;
     private volatile int mode;
     private volatile LockEngine engine;
-    private long lastTap;
     private boolean nfcLaunch;
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);prefs=getSharedPreferences("settings",0);consumeSetup();
+        super.onCreate(state);global=KeyProfiles.global(this);prefs=KeyProfiles.current(this);consumeSetup();
         adapter=NfcAdapter.getDefaultAdapter(this);buildUi();writePlan();UnlockWidget.refreshAll(this);handleIntent(getIntent());
     }
     private void buildUi(){
@@ -54,15 +55,17 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(22),dp(22),dp(22),dp(22));card.setBackground(round(Color.rgb(26,34,50)));root.addView(card);
         status=text("准备就绪",23,fg,true);card.addView(status);
         summary=text("",15,muted,false);summary.setPadding(0,dp(15),0,0);card.addView(summary);
+        Button choose=button("选择门锁 / 重命名",Color.rgb(49,61,85));root.addView(choose);choose.setOnClickListener(v->chooseKey());
         open=button("手动开锁",Color.rgb(225,73,128));root.addView(open);open.setOnClickListener(v->startUnlock(true));
         Button widget=button("添加桌面开锁卡片",Color.rgb(49,61,85));root.addView(widget);widget.setOnClickListener(v->addWidget());
         Button probe=button("验证钥匙（不开锁）",Color.rgb(49,61,85));root.addView(probe);probe.setOnClickListener(v->startUnlock(false));
         Button wrist=button("手环开门（测试）",Color.rgb(49,61,85));root.addView(wrist);wrist.setOnClickListener(v->startActivity(new Intent(this,WristActivity.class)));
-        auto=new Switch(this);auto.setText("碰一碰自动开锁");auto.setTextSize(17);auto.setTextColor(fg);auto.setPadding(0,dp(23),0,dp(12));auto.setChecked(prefs.getBoolean("auto",false));root.addView(auto);
+        auto=new Switch(this);auto.setText("碰一碰自动开锁");auto.setTextSize(17);auto.setTextColor(fg);auto.setPadding(0,dp(23),0,dp(12));setAuto(prefs.getBoolean("auto",false));root.addView(auto);
         auto.setOnCheckedChangeListener((view,checked)->{
+            if(updatingAuto)return;
             if(checked&&!prefs.getBoolean("validated",false)){view.setChecked(false);show("请先完成一次手动开锁验证");return;}
             prefs.edit().putBoolean("auto",checked).apply();
-            if(!checked){prefs.edit().putBoolean("lockedNfc",false).apply();stopService(new Intent(this,LockScreenService.class));}
+            if(!checked&&!KeyProfiles.anyReady(this)){global.edit().putBoolean("lockedNfc",false).apply();stopService(new Intent(this,LockScreenService.class));}
             refresh();
         });
         lockedNfc=new Switch(this);lockedNfc.setText("锁屏碰一碰（实验：需亮屏）");lockedNfc.setTextSize(17);lockedNfc.setTextColor(fg);root.addView(lockedNfc);
@@ -74,23 +77,23 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                 String error=!LockedNfc.supported()?"这台手机的系统版本尚未验证锁屏 NFC":
                     checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)!=PackageManager.PERMISSION_GRANTED?"请先通过电脑授予锁屏 NFC 权限（系统安全设置权限）":
                     !hasBluetooth()?"请先授予附近设备权限":
-                    !prefs.getBoolean("auto",false)||!prefs.getBoolean("configured",false)||!prefs.getBoolean("validated",false)||prefs.getString("tagId","").isEmpty()?"请先完成标签配置、开锁验证，并开启碰一碰自动开锁":null;
+                    !KeyProfiles.anyReady(this)?"请先完成标签配置、开锁验证，并开启碰一碰自动开锁":null;
                 if(error!=null){updatingLockedUi=true;view.setChecked(false);updatingLockedUi=false;show(error);return;}
                 if(checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
                     updatingLockedUi=true;view.setChecked(false);updatingLockedUi=false;
                     requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},25);return;
                 }
-                prefs.edit().putBoolean("lockedNfc",true).apply();
+                global.edit().putBoolean("lockedNfc",true).apply();
                 try{startForegroundService(new Intent(this,LockScreenService.class));}
-                catch(Exception e){prefs.edit().putBoolean("lockedNfc",false).apply();show("无法启动锁屏监听，请重新打开应用");}
-            }else{prefs.edit().putBoolean("lockedNfc",false).apply();stopService(new Intent(this,LockScreenService.class));}
+                catch(Exception e){global.edit().putBoolean("lockedNfc",false).apply();show("无法启动锁屏监听，请重新打开应用");}
+            }else{global.edit().putBoolean("lockedNfc",false).apply();stopService(new Intent(this,LockScreenService.class));}
             view.postDelayed(this::refresh,800);
         });
         Switch hideRecent=new Switch(this);hideRecent.setText("隐藏最近任务卡片");hideRecent.setTextSize(17);hideRecent.setTextColor(fg);
-        hideRecent.setChecked(prefs.getBoolean("hideRecents",true));root.addView(hideRecent);
+        hideRecent.setChecked(global.getBoolean("hideRecents",true));root.addView(hideRecent);
         TextView hideNote=text("保留桌面图标和监听通知，减少误划掉后台卡片。关闭此开关可恢复卡片显示。",13,muted,false);hideNote.setPadding(0,dp(8),0,dp(12));root.addView(hideNote);
-        hideRecent.setOnCheckedChangeListener((view,checked)->{prefs.edit().putBoolean("hideRecents",checked).apply();applyRecentVisibility();});
-        Button importKey=button("导入门锁密钥",Color.rgb(49,61,85));root.addView(importKey);importKey.setOnClickListener(v->importKey());
+        hideRecent.setOnCheckedChangeListener((view,checked)->{global.edit().putBoolean("hideRecents",checked).apply();applyRecentVisibility();});
+        Button importKey=button("添加门锁钥匙",Color.rgb(49,61,85));root.addView(importKey);importKey.setOnClickListener(v->importKey());
         Button learn=button("读取门锁标签",Color.rgb(49,61,85));root.addView(learn);learn.setOnClickListener(v->{mode=0;nfcLaunch=false;enableReader();show("请保持本页打开，靠近门锁标签");});
         writeTag=button("配置原标签，启用碰一碰",Color.rgb(49,61,85));root.addView(writeTag);writeTag.setOnClickListener(v->confirmWrite(false));
         Button restore=button("恢复标签原来的内容",Color.rgb(37,46,64));root.addView(restore);restore.setOnClickListener(v->confirmWrite(true));
@@ -98,16 +101,24 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         details=text("",13,muted,false);details.setTextIsSelectable(true);details.setPadding(0,dp(24),0,0);root.addView(details);
         setContentView(scroll);refresh();
     }
+    private void setAuto(boolean value){updatingAuto=true;auto.setChecked(value);updatingAuto=false;}
     private void refresh(){
-        String mac=prefs.getString("mac","");summary.setText(mac.isEmpty()?"尚未配置钥匙":"门锁 "+mac+"\n"+(KeyStore.has(this)?"密钥已加密保存在本机":"尚未导入密钥")+"\n"+(prefs.getBoolean("validated",false)?"已通过本机开锁验证":"等待本机开锁验证"));
+        String mac=prefs.getString("mac","");
+        SharedPreferences selected=KeyProfiles.current(this);
+        String defaultMac=selected.getString("mac","");
+        String defaultName=defaultMac.isEmpty()?"未选择":KeyProfiles.label(this,defaultMac);
+        summary.setText("已保存 "+KeyProfiles.list(this).size()+" 把钥匙\n"+
+            (mac.isEmpty()?"尚未配置钥匙":"当前页面："+KeyProfiles.label(this,mac)+"\n"+(KeyStore.has(this,mac)?"密钥已加密保存在本机":"尚未导入密钥")+"\n"+(prefs.getBoolean("validated",false)?"已通过本机开锁验证":"等待本机开锁验证"))+
+            "\n桌面卡片 / 手环默认："+defaultName+"\n碰 NFC 自动匹配对应门锁"+
+            (prefs.getBoolean("configured",false)&&prefs.getString("original","").isEmpty()?"\n原始标签备份缺失，无法恢复原内容":""));
         if(details!=null)details.setText(prefs.getString("report",""));
-        if(lockedNfc!=null){updatingLockedUi=true;lockedNfc.setChecked(LockScreenService.RUNNING&&prefs.getBoolean("lockedNfc",false));updatingLockedUi=false;
-            lockedStatus.setText((LockScreenService.RUNNING?"监听运行中":"监听未运行")+"\n最近记录："+prefs.getString("lockedNfcStatus","开启后，点亮屏幕但保持锁定，再碰门锁标签。"));}
+        if(lockedNfc!=null){updatingLockedUi=true;lockedNfc.setChecked(LockScreenService.RUNNING&&global.getBoolean("lockedNfc",false));updatingLockedUi=false;
+            lockedStatus.setText((LockScreenService.RUNNING?"监听运行中":"监听未运行")+"\n最近记录："+global.getString("lockedNfcStatus","开启后，点亮屏幕但保持锁定，再碰门锁标签。"));}
     }
     private void show(String value){runOnUiThread(()->{if(!isFinishing())status.setText(value);});}
     private void enableReader(){if(!nfcLaunch&&adapter!=null&&adapter.isEnabled())adapter.enableReaderMode(this,this,NfcAdapter.FLAG_READER_NFC_A|NfcAdapter.FLAG_READER_NFC_B|NfcAdapter.FLAG_READER_NFC_F|NfcAdapter.FLAG_READER_NFC_V,null);}
     private void applyRecentVisibility(){
-        boolean hide=prefs.getBoolean("hideRecents",true);
+        boolean hide=global.getBoolean("hideRecents",true);
         try{android.app.ActivityManager manager=getSystemService(android.app.ActivityManager.class);
             for(android.app.ActivityManager.AppTask task:manager.getAppTasks()){
                 android.app.ActivityManager.RecentTaskInfo info=task.getTaskInfo();
@@ -116,7 +127,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
             }
         }catch(RuntimeException e){show("未能更新后台卡片显示，请重新打开应用");}
     }
-    @Override protected void onResume(){super.onResume();applyRecentVisibility();enableReader();ListenerRestoreReceiver.restore(this);refresh();if(lockedNfc!=null)lockedNfc.postDelayed(this::refresh,800);}
+    @Override protected void onResume(){super.onResume();if(!opening.get()&&!handling.get()){prefs=KeyProfiles.current(this);setAuto(prefs.getBoolean("auto",false));}applyRecentVisibility();enableReader();ListenerRestoreReceiver.restore(this);refresh();if(lockedNfc!=null)lockedNfc.postDelayed(this::refresh,800);}
     @Override protected void onPause(){mode=0;if(adapter!=null)adapter.disableReaderMode(this);super.onPause();}
     @Override protected void onDestroy(){LockEngine e=engine;if(e!=null)e.close();work.shutdownNow();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);handleIntent(intent);}
@@ -132,25 +143,31 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         if(opening.get()||!handling.compareAndSet(false,true))return;
         if(work.isShutdown()){handling.set(false);return;}
         final int requestedMode=mode;
+        final SharedPreferences writeTarget=prefs;
         work.execute(()->{
             try{
                 Ndef ndef=Ndef.get(tag);if(ndef==null)throw new Exception("标签不是可识别的门锁标签");
                 ndef.connect();
                 try{
                     NdefMessage current=requestedMode==2?null:ndef.getNdefMessage();
-                    if(requestedMode!=0){write(ndef,tag,current,requestedMode==2);return;}
-                    String mac=macFrom(current),configured=prefs.getString("mac","");
+                    if(requestedMode!=0){write(writeTarget,ndef,tag,current,requestedMode==2);return;}
+                    SharedPreferences matched=KeyProfiles.match(this,current,LockProtocol.hex(tag.getId()),false);
+                    if(matched==null)throw new Exception("没有匹配的钥匙，请先添加这把门锁的钥匙");
+                    final SharedPreferences target=matched;
+                    String mac=macFrom(current),configured=target.getString("mac","");
                     if(mac.isEmpty())throw new Exception("这个标签不包含支持的门锁信息");
                     if(configured.isEmpty()||!configured.equals(mac))throw new Exception("这不是已配置的门锁");
-                    String id=LockProtocol.hex(tag.getId()),known=prefs.getString("tagId","");
+                    String id=LockProtocol.hex(tag.getId()),known=target.getString("tagId","");
                     if(!known.isEmpty()&&!known.equals(id))throw new Exception("标签编号与已登记的门锁不一致");
                     NfcAudio.play(this);
-                    SharedPreferences.Editor edit=prefs.edit().putString("tagId",id);
-                    if(prefs.getString("original","").isEmpty()&&!hasOwnRecord(current))edit.putString("original",LockProtocol.hex(current.toByteArray()));
+                    SharedPreferences.Editor edit=target.edit().putString("tagId",id);
+                    boolean alreadyConfigured=hasOwnRecord(current);
+                    if(target.getString("original","").isEmpty()&&!alreadyConfigured)edit.putString("original",LockProtocol.hex(current.toByteArray()));
+                    if(alreadyConfigured)edit.putBoolean("configured",true);
                     String report="已识别门锁标签\n"+mac+"\n标签编号 "+id+"\n标签容量 "+ndef.getMaxSize()+" 字节\n当前内容 "+current.toByteArray().length+" 字节";
-                    edit.putString("report",report).apply();runOnUiThread(this::refresh);
-                    if(prefs.getBoolean("auto",false)&&prefs.getBoolean("validated",false)){
-                        long now=SystemClock.elapsedRealtime();if(now-lastTap<8000||System.currentTimeMillis()-prefs.getLong("lastNfcAt",0)<8000)return;lastTap=now;prefs.edit().putLong("lastNfcAt",System.currentTimeMillis()).apply();runOnUiThread(()->startUnlock(true));
+                    edit.putString("report",report).apply();runOnUiThread(()->{prefs=target;setAuto(target.getBoolean("auto",false));refresh();});
+                    if(target.getBoolean("auto",false)&&target.getBoolean("validated",false)){
+                        runOnUiThread(()->startUnlock(target,true,true));
                     }else show("标签已识别，尚未启用自动开锁");
                 }finally{try{ndef.close();}catch(Exception ignored){}}
             }catch(Exception e){show(e.getMessage()==null?"读取标签失败":e.getMessage());}
@@ -158,12 +175,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         });
     }
     private boolean hasOwnRecord(NdefMessage message){for(NdefRecord r:message.getRecords())if("android.com:pkg".equals(new String(r.getType(),StandardCharsets.UTF_8))&&getPackageName().equals(new String(r.getPayload(),StandardCharsets.UTF_8)))return true;return false;}
-    private String macFrom(NdefMessage message)throws Exception{
-        if(message==null||message.getRecords().length==0)return "";
-        Uri uri=message.getRecords()[0].toUri();
-        if(uri==null||!"https".equals(uri.getScheme())||!"biz.confong.cn".equals(uri.getHost())||!"/nfc/lock".equals(uri.getPath()))return "";
-        String raw=uri.getQueryParameter("mac");return raw==null?"":normalizeMac(raw);
-    }
+    private String macFrom(NdefMessage message){return KeyProfiles.macFrom(message);}
     static String normalizeMac(String value){
         String raw=value.replace(":","").replace("-","").trim().toUpperCase(Locale.ROOT);
         if(!raw.matches("[0-9A-F]{12}"))throw new IllegalArgumentException("门锁 MAC 格式错误");
@@ -180,17 +192,21 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
     private void requestBluetooth(){if(Build.VERSION.SDK_INT>=31)requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},24);}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==24)show(hasBluetooth()?"蓝牙权限已开启，请再点一次操作":"需要附近设备权限才能连接门锁");if(request==25)show(checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED?"通知已允许，请开启锁屏监听":"锁屏监听需要显示运行通知");}
-    private void startUnlock(boolean reallyOpen){
+    private void startUnlock(boolean reallyOpen){startUnlock(prefs,reallyOpen);}
+    private void startUnlock(final SharedPreferences target,boolean reallyOpen){startUnlock(target,reallyOpen,false);}
+    private void startUnlock(final SharedPreferences target,boolean reallyOpen,boolean fromNfc){
         if(!hasBluetooth()){requestBluetooth();return;}
-        final String mac=prefs.getString("mac","");
-        if(mac.isEmpty()||!KeyStore.has(this)){show("请先导入门锁密钥");return;}
+        final String mac=target.getString("mac","");
+        if(mac.isEmpty()||!KeyStore.has(this,mac)){show("请先导入门锁密钥");return;}
+        if(fromNfc&&KeyProfiles.recentTap(target,System.currentTimeMillis()))return;
         if(!opening.compareAndSet(false,true))return;
+        if(fromNfc)target.edit().putLong("lastNfcAt",System.currentTimeMillis()).apply();
         open.setEnabled(false);writeTag.setEnabled(false);
         work.execute(()->{
             LockEngine current=new LockEngine();engine=current;
             try{
-                current.run(this,mac,KeyStore.read(this),reallyOpen,this::show);
-                if(reallyOpen){prefs.edit().putBoolean("validated",true).apply();Vibrator v=(Vibrator)getSystemService(VIBRATOR_SERVICE);if(v!=null)v.vibrate(VibrationEffect.createOneShot(80,VibrationEffect.DEFAULT_AMPLITUDE));}
+                current.run(this,mac,KeyStore.read(this,mac),reallyOpen,this::show);
+                if(reallyOpen){target.edit().putBoolean("validated",true).apply();Vibrator v=(Vibrator)getSystemService(VIBRATOR_SERVICE);if(v!=null)v.vibrate(VibrationEffect.createOneShot(80,VibrationEffect.DEFAULT_AMPLITUDE));}
                 writeResult(true,reallyOpen?"门锁已确认开锁成功":"钥匙验证通过，未发送开锁指令");
             }catch(Exception e){String message=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();show(message);writeResult(false,message);}
             finally{engine=null;opening.set(false);runOnUiThread(()->{open.setEnabled(true);writeTag.setEnabled(true);refresh();});}
@@ -201,9 +217,25 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         EditText input=new EditText(this);input.setHint("MAC 密钥");input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);input.setMinLines(2);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("导入自己的门锁密钥").setMessage("粘贴一行：MAC、一个空格、32 位密钥。密钥仅加密保存在本机。").setView(input).setNegativeButton("取消",null).setPositiveButton("保存",null).create();
         dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            try{String[] parts=input.getText().toString().trim().split("[\\s,，]+");if(parts.length!=2)throw new Exception("请按 MAC 密钥 的格式输入");String mac=normalizeMac(parts[0]);KeyStore.save(this,parts[1]);prefs.edit().putString("mac",mac).putBoolean("validated",false).putBoolean("auto",false).remove("tagId").remove("original").remove("report").apply();auto.setChecked(false);refresh();show("密钥已加密保存，请先验证开锁");dialog.dismiss();}
+            try{String[] parts=input.getText().toString().trim().split("[\\s,，]+");if(parts.length!=2)throw new Exception("请按 MAC 密钥 的格式输入");String mac=normalizeMac(parts[0]);if(UnlockGate.OPENING.get()||handling.get())throw new Exception("正在处理，请稍后添加钥匙");mode=0;KeyProfiles.add(this,mac,parts[1]);prefs=KeyProfiles.current(this);setAuto(false);UnlockWidget.refreshAll(this);refresh();show("密钥已加密保存，请先验证开锁");dialog.dismiss();}
             catch(Exception e){input.setError(e.getMessage());}
         }));dialog.show();
+    }
+    private void chooseKey(){
+        if(opening.get()||handling.get()){show("正在处理，请稍后切换钥匙");return;}
+        List<String> keys=KeyProfiles.list(this);
+        if(keys.isEmpty()){importKey();return;}
+        String[] labels=new String[keys.size()];for(int i=0;i<labels.length;i++)labels[i]=KeyProfiles.label(this,keys.get(i));
+        new AlertDialog.Builder(this).setTitle("选择手动 / 桌面卡片 / 手环的默认钥匙").setItems(labels,(d,index)->{
+            if(opening.get()||handling.get()){show("正在处理，请稍后切换钥匙");return;}
+            mode=0;KeyProfiles.select(this,keys.get(index));prefs=KeyProfiles.current(this);setAuto(prefs.getBoolean("auto",false));UnlockWidget.refreshAll(this);refresh();
+            show("已切换钥匙；碰标签仍会自动匹配对应门锁");
+        }).setNeutralButton("重命名当前钥匙",(d,w)->{
+            final SharedPreferences target=prefs;EditText name=new EditText(this);name.setText(target.getString("name","钥匙"));
+            new AlertDialog.Builder(this).setTitle("钥匙名称").setView(name).setNegativeButton("取消",null).setPositiveButton("保存",(x,y)->{
+                String value=name.getText().toString().trim();if(!value.isEmpty()){target.edit().putString("name",value).apply();UnlockWidget.refreshAll(this);refresh();}
+            }).show();
+        }).setNegativeButton("取消",null).show();
     }
     private void confirmWrite(boolean restore){
         if(opening.get())return;
@@ -212,10 +244,10 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         String message=restore?"下一次碰到已登记的门锁标签时，将恢复最初读取的原内容。":"下一次碰到已登记的门锁标签时，将保留原网址和天猫校园入口，并优先使用胡桃碰一碰。其他手机若两款应用都没安装，应用商店跳转可能改变。只处理这一把门锁。";
         new AlertDialog.Builder(this).setTitle(restore?"恢复原标签":"配置碰一碰开门").setMessage(message).setNegativeButton("取消",null).setPositiveButton(restore?"准备恢复":"准备配置",(d,w)->{mode=restore?2:1;nfcLaunch=false;enableReader();show("请保持本页打开，再碰一下这把门锁标签");}).show();
     }
-    private void write(Ndef ndef,Tag tag,NdefMessage current,boolean restore)throws Exception{
+    private void write(SharedPreferences target,Ndef ndef,Tag tag,NdefMessage current,boolean restore)throws Exception{
         mode=0;
-        if(!prefs.getString("tagId","").equals(LockProtocol.hex(tag.getId())))throw new Exception("不是已登记的标签，未写入");
-        byte[] original=LockProtocol.bytes(prefs.getString("original",""));NdefMessage originalMessage=new NdefMessage(original),desired=originalMessage;
+        if(!target.getString("tagId","").equals(LockProtocol.hex(tag.getId())))throw new Exception("不是已登记的标签，未写入");
+        byte[] original=LockProtocol.bytes(target.getString("original",""));NdefMessage originalMessage=new NdefMessage(original),desired=originalMessage;
         if(!restore){
             desired=configuredMessage(originalMessage);
             if(current==null||(!Arrays.equals(current.toByteArray(),original)&&!Arrays.equals(current.toByteArray(),desired.toByteArray())))throw new Exception("原标签内容发生了变化，未写入");
@@ -224,13 +256,13 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         if(desired.toByteArray().length>ndef.getMaxSize())throw new Exception("标签容量不足，未修改");
         ndef.writeNdefMessage(desired);NdefMessage readback=ndef.getNdefMessage();
         if(readback==null||!Arrays.equals(desired.toByteArray(),readback.toByteArray()))throw new Exception("写入后未确认，请保持靠近并重新读取标签");
-        lastTap=SystemClock.elapsedRealtime();
-        prefs.edit().putLong("lastNfcAt",System.currentTimeMillis()).putBoolean("configured",!restore).putBoolean("auto",!restore&&prefs.getBoolean("validated",false)).putString("report",restore?"原标签内容已恢复":"标签已配置，优先胡桃碰一碰；原网址和天猫校园入口均保留").apply();
-        runOnUiThread(()->{auto.setChecked(prefs.getBoolean("auto",false));refresh();});show(restore?"标签原内容已恢复":"标签已配置，请回到桌面测试碰一碰");
+        NfcAudio.play(this);
+        target.edit().putLong("lastNfcAt",System.currentTimeMillis()).putBoolean("configured",!restore).putBoolean("auto",!restore&&target.getBoolean("validated",false)).putString("report",restore?"原标签内容已恢复":"标签已配置，优先胡桃碰一碰；原网址和天猫校园入口均保留").apply();
+        runOnUiThread(()->{setAuto(target.getBoolean("auto",false));refresh();});show(restore?"标签原内容已恢复":"标签已配置，请回到桌面测试碰一碰");
     }
     private void consumeSetup(){
         File setup=new File(getFilesDir(),"setup.json");if(!setup.exists())return;
-        try{JSONObject j=new JSONObject(new String(readFile(setup),StandardCharsets.UTF_8));String mac=normalizeMac(j.getString("mac"));if(j.has("key"))KeyStore.save(this,j.getString("key"));SharedPreferences.Editor e=prefs.edit().putString("mac",mac);if(j.has("tagId"))e.putString("tagId",j.getString("tagId"));if(j.has("original"))e.putString("original",j.getString("original"));e.apply();}
+        try{JSONObject j=new JSONObject(new String(readFile(setup),StandardCharsets.UTF_8));String mac=normalizeMac(j.getString("mac"));if(j.has("key"))KeyProfiles.add(this,mac,j.getString("key"));else KeyProfiles.select(this,mac);prefs=KeyProfiles.current(this);SharedPreferences.Editor e=prefs.edit().putString("mac",mac);if(j.has("tagId"))e.putString("tagId",j.getString("tagId"));if(j.has("original"))e.putString("original",j.getString("original"));e.apply();}
         catch(Exception ignored){}finally{setup.delete();}
     }
     private void writePlan(){

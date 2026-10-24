@@ -10,7 +10,10 @@ import android.widget.RemoteViews;
 
 public final class UnlockWidget extends AppWidgetProvider {
     @Override public void onUpdate(Context context,AppWidgetManager manager,int[] ids){
-        String status=context.getSharedPreferences("widget-state",0).getString("status","胡桃碰一碰");
+        String status=context.getSharedPreferences("widget-state",0).getString("status","点击开门");
+        android.content.SharedPreferences selected=KeyProfiles.current(context);
+        String name=selected.getString("name","默认门锁");
+        status=name+" · "+status;
         for(int id:ids){
             RemoteViews views=new RemoteViews(context.getPackageName(),ht.key.R.layout.unlock_widget);
             Intent intent=new Intent(context,UnlockService.class);

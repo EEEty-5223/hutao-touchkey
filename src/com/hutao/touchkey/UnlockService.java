@@ -42,21 +42,21 @@ public final class UnlockService extends Service {
             }
             ownsGate.set(true);busy=true;
             UnlockWidget.status(this,"正在连接，请保持靠近");
-            work.execute(()->unlock(startId));
+            final SharedPreferences target=KeyProfiles.current(this);
+            work.execute(()->unlock(startId,target));
         }catch(Exception e){
             releaseGate();UnlockWidget.status(this,"无法开始，请打开应用检查");toast("无法开始开锁，请打开胡桃碰一碰检查权限");
             stopForeground(STOP_FOREGROUND_REMOVE);stopSelfResult(startId);
         }
         return START_NOT_STICKY;
     }
-    private void unlock(int startId){
+    private void unlock(int startId,SharedPreferences prefs){
         try{
             if(Build.VERSION.SDK_INT>=31&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED)
                 throw new Exception("请打开胡桃碰一碰，授予附近设备权限");
-            SharedPreferences prefs=getSharedPreferences("settings",0);
-            String mac=prefs.getString("mac","");if(mac.isEmpty()||!KeyStore.has(this))throw new Exception("请先在胡桃碰一碰中导入门锁密钥");
+            String mac=prefs.getString("mac","");if(mac.isEmpty()||!KeyStore.has(this,mac))throw new Exception("请先在胡桃碰一碰中导入门锁密钥");
             LockEngine current=new LockEngine();engine=current;
-            current.run(this,mac,KeyStore.read(this),true,message->{});
+            current.run(this,mac,KeyStore.read(this,mac),true,message->{});
             prefs.edit().putBoolean("validated",true).apply();
             Vibrator vibrator=getSystemService(Vibrator.class);if(vibrator!=null)vibrator.vibrate(VibrationEffect.createOneShot(80,VibrationEffect.DEFAULT_AMPLITUDE));
             result(true,"门锁已确认开锁成功");UnlockWidget.status(this,"已开门 · 点击可再次开门");toast("开锁成功");

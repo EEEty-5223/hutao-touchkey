@@ -13,7 +13,7 @@ public final class ListenerRestoreReceiver extends BroadcastReceiver {
     }
     static void restore(Context context){
         SharedPreferences p=context.getSharedPreferences("settings",0);
-        if(LockScreenService.RUNNING||!LockedNfc.supported()||!p.getBoolean("lockedNfc",false)||!p.getBoolean("auto",false)||!p.getBoolean("validated",false)||!p.getBoolean("configured",false)||p.getString("tagId","").isEmpty()||!KeyStore.has(context))return;
+        if(LockScreenService.RUNNING||!LockedNfc.supported()||!p.getBoolean("lockedNfc",false)||!KeyProfiles.anyReady(context))return;
         if(context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)!=PackageManager.PERMISSION_GRANTED||context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED||context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED)return;
         NfcAdapter nfc=NfcAdapter.getDefaultAdapter(context);if(nfc==null||!nfc.isEnabled())return;
         try{context.startForegroundService(new Intent(context,LockScreenService.class));}

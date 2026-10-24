@@ -21,20 +21,8 @@ final class NfcAudio {
 
     static void onTag(Context context,Tag tag){
         if(tag==null)return;
-        SharedPreferences prefs=context.getSharedPreferences("settings",0);
-        String known=prefs.getString("tagId","");
-        if(!known.isEmpty()&&!known.equals(LockProtocol.hex(tag.getId())))return;
-        String configured=prefs.getString("mac","").replace(":","");
-        if(configured.isEmpty())return;
         Ndef ndef=Ndef.get(tag);
-        NdefMessage message=ndef==null?null:ndef.getCachedNdefMessage();
-        if(message==null)return;
-        for(NdefRecord record:message.getRecords()){
-            Uri uri=record.toUri();
-            if(uri==null||!"https".equals(uri.getScheme())||!"biz.confong.cn".equals(uri.getHost())||!"/nfc/lock".equals(uri.getPath()))continue;
-            String mac=uri.getQueryParameter("mac");
-            if(mac!=null&&configured.equalsIgnoreCase(mac.replace(":",""))){play(context);return;}
-        }
+        if(KeyProfiles.match(context,ndef==null?null:ndef.getCachedNdefMessage(),LockProtocol.hex(tag.getId()),false)!=null)play(context);
     }
 
     static void play(Context context){
